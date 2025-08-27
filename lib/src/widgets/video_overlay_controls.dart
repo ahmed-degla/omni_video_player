@@ -67,7 +67,7 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
     await Future.delayed(const Duration(milliseconds: 250));
 
     // Check buffering for next 3 seconds before applying seek
-    if (_isBuffered(targetPosition, const Duration(seconds: 3))) {
+    if (_isBuffered(targetPosition, const Duration(seconds: 1))) {
       widget.controller.seekTo(targetPosition);
     } else {
       debugPrint("⚠️ Skip cancelled: not enough buffered video ahead.");

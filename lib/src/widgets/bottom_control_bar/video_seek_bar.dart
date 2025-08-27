@@ -67,13 +67,7 @@ class VideoSeekBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return controller.isLive
         ? (showLiveIndicator ? _buildLiveIndicator() : const SizedBox.shrink())
-        : (showSeekBar
-        ? AnimatedBuilder(
-        animation: controller,
-        builder: (BuildContext context, Widget? child) {
-          return _buildSeekBar(context);
-        })
-        : const SizedBox.shrink());
+        : (showSeekBar ? _buildSeekBar(context) : const SizedBox.shrink());
   }
 
   /// Builds the UI for live stream playback indicator.
@@ -97,67 +91,37 @@ class VideoSeekBar extends StatelessWidget {
               if (controller.isReady) controller.isSeeking = true;
               onSeekStart?.call(controller.currentPosition);
             },
-              onChangeEnd: (value) async {
-                // التحقق هل المكان اللي المستخدم اختاره داخل الجزء المتحمّل
-                final isBuffered = controller.buffered.any(
-                      (range) => value >= range.start && value <= range.end,
-                );
-
-                if (isBuffered) {
-                  // ✅ لو buffered → سيك عادي
-                   controller.seekTo(value);
-                  if (controller.wasPlayingBeforeSeek) {
-                    controller.play();
-                  }
-                  controller.isSeeking = false;
-                } else {
-                  // ❌ لو مش buffered → وقف الفيديو
-                  controller.pause();
-
-                  // إظهار رسالة قصيرة باستخدام OverlayEntry
-                  final overlay = OverlayEntry(
-                    builder: (context) => Positioned(
-                      bottom: 80,
-                      left: MediaQuery.of(context).size.width / 2 - 120,
-                      child: Material(
-                        color: Colors.transparent,
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.black87,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            "⏳ Loading... Please wait until this part is buffered.",
-                            style: TextStyle(color: Colors.white),
-                          ),
+            onChangeEnd: (value) {
+              if(!controller.isReady){
+                // إظهار رسالة قصيرة باستخدام OverlayEntry
+                final overlay = OverlayEntry(
+                  builder: (context) => Positioned(
+                    bottom: 80,
+                    left: MediaQuery.of(context).size.width / 2 - 120,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.black87,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          "⏳ Loading... Please wait until this part is buffered.",
+                          style: TextStyle(color: Colors.white),
                         ),
                       ),
                     ),
-                  );
+                  ),
+                );
 
-                  Overlay.of(context).insert(overlay);
-                  Future.delayed(const Duration(seconds: 2), () => overlay.remove());
+                Overlay.of(context).insert(overlay);
+                Future.delayed(const Duration(seconds: 2), () => overlay.remove());
 
-                  // 👂 نراقب البوفرينج ونرجّع التشغيل أوتوماتيك أول ما المكان المطلوب يتخزّن
-                  void listener() {
-                    final newlyBuffered = controller.buffered.any(
-                          (range) => value >= range.start && value <= range.end,
-                    );
-                    if (newlyBuffered) {
-                      controller.removeListener(listener);
-                      controller.seekTo(value);
-                      if (controller.isReady && controller.wasPlayingBeforeSeek) {
-                        controller.play();
-                        controller.isSeeking = false;
-                      }
-                    }
-                  }
 
-                  // إضافة listener على الكنترولر
-                  controller.addListener(listener);
-                }
-              },
+              }
+              controller.seekTo(value);
+            },
             onChanged: (_) {
               if (controller.isReady) controller.isSeeking = true;
             },
