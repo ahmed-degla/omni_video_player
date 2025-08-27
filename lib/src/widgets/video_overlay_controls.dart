@@ -160,10 +160,10 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
                                   _TapInteractionState.doubleTapBackward) {
                             switch (_skipSeconds) {
                               case 5:
-                                skipSeconds = 10;
+                                skipSeconds = 5;
                                 break;
                               default:
-                                skipSeconds = 30;
+                                skipSeconds = 5;
                             }
                           }
 
@@ -203,13 +203,10 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
                                   _TapInteractionState.doubleTapForward) {
                             switch (_skipSeconds) {
                               case 5:
-                                skipSeconds = 10;
-                                break;
-                              case 10:
-                                skipSeconds = 30;
+                                skipSeconds = 5;
                                 break;
                               default:
-                                skipSeconds = 30;
+                                skipSeconds = 5;
                             }
                           }
 
