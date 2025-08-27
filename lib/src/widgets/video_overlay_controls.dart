@@ -12,21 +12,10 @@ import 'indicators/loader_indicator.dart';
 
 /// A widget that overlays video playback controls on top of a video display.
 ///
-/// This widget manages the visibility of playback controls including a play/pause button
-/// and a bottom control bar with playback progress and other controls. It supports
-/// auto-hiding controls after a configurable timeout period, which differs between
-/// web and mobile platforms for optimized user experience.
-///
-/// Key features:
-/// - Wraps the video content [child] and overlays playback controls.
-/// - Toggles control visibility on user tap gestures.
-/// - Auto-hides controls after a timeout (2 seconds by default).
-/// - Shows a customizable bottom control bar or defaults to a standard control bar.
-/// - Displays an auto-hide play/pause button.
-/// - Supports playback state and interaction through [OmniPlaybackController].
-///
-/// The auto-hide timers are set separately for web and mobile platforms to
-/// accommodate typical user interaction patterns.
+/// - Manages visibility of playback controls (auto-hide after timeout).
+/// - Shows play/pause, bottom control bar, skip indicators.
+/// - Handles gestures (tap, double-tap forward/backward, vertical drag).
+/// - Uses [AnimationController] to animate skip indicator with fade-out.
 class VideoOverlayControls extends StatefulWidget {
   const VideoOverlayControls({
     super.key,
@@ -49,28 +38,44 @@ class VideoOverlayControls extends StatefulWidget {
 
 class _VideoOverlayControlsState extends State<VideoOverlayControls>
     with SingleTickerProviderStateMixin {
-  /// Indicates the direction of the skip (forward or backward). Null means no skip indicator.
+  /// Indicates skip direction (forward / backward). Null when no skip indicator.
   SkipDirection? _skipDirection;
 
-  /// Number of seconds to skip.
+  /// Number of seconds skipped (default 5s).
   int _skipSeconds = 0;
 
+  /// Controls skip indicator animation (fade-out).
   late final AnimationController _animationController;
 
+  /// Current user interaction state (tap / double-tap).
   _TapInteractionState _tapState = _TapInteractionState.idle;
 
   @override
   void initState() {
     super.initState();
-    // Initializes the animation controller for the skip indicator (fade-out effect).
+
+    // Initializes the animation controller for the skip indicator.
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2, milliseconds: 500),
-    );
+      duration: const Duration(milliseconds: 1500),
+    )
+    // Add status listener instead of .then to avoid multiple setStates.
+      ..addStatusListener((status) {
+        // When animation finishes → reset skip state.
+        if (status == AnimationStatus.completed) {
+          if (mounted) {
+            setState(() {
+              _skipDirection = null;
+              _tapState = _TapInteractionState.idle;
+            });
+          }
+        }
+      });
   }
 
-  /// Triggers the skip indicator with the given direction and duration.
+  /// Triggers skip indicator animation with given [direction] and [skipSeconds].
   void _showSkip(SkipDirection direction, int skipSeconds) {
+    // Update state to show skip indicator.
     setState(() {
       _skipDirection = direction;
       _skipSeconds = skipSeconds;
@@ -78,17 +83,20 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
           ? _TapInteractionState.doubleTapForward
           : _TapInteractionState.doubleTapBackward;
     });
+
+    // If animation already running → stop it to avoid stacking animations.
+    if (_animationController.isAnimating) {
+      _animationController.stop();
+    }
+
+    // Restart the animation for new skip.
     _animationController.reset();
-    _animationController.forward().then((_) {
-      setState(() {
-        _skipDirection = null;
-        _tapState = _TapInteractionState.idle;
-      });
-    });
+    _animationController.forward();
   }
 
   @override
   void dispose() {
+    // Dispose animation controller to free resources.
     _animationController.dispose();
     super.dispose();
   }
@@ -103,6 +111,7 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
           options: widget.options,
           callbacks: widget.callbacks,
           builder: (context, areControlsVisible, toggleVisibility) {
+            // Determine when bottom overlay controls should be visible.
             bool areOverlayControlsVisible =
                 (widget.controller.isPlaying || widget.controller.isSeeking) &&
                     widget.options.playerUIVisibilityOptions
@@ -111,6 +120,7 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
                     _tapState != _TapInteractionState.doubleTapForward &&
                     _tapState != _TapInteractionState.doubleTapBackward;
 
+            // Determine visibility of central play/pause button.
             bool isVisibleButton = widget.controller.isFinished ||
                 (areControlsVisible &&
                     !widget.controller.isBuffering &&
@@ -122,50 +132,40 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
                     _tapState != _TapInteractionState.doubleTapForward &&
                     _tapState != _TapInteractionState.doubleTapBackward);
 
+            // Fire visibility callbacks for external listeners.
             widget.callbacks.onCenterControlsVisibilityChanged
                 ?.call(isVisibleButton);
             widget.callbacks.onOverlayControlsVisibilityChanged?.call(
               areOverlayControlsVisible,
             );
 
+            // Stack layers for overlay controls.
             List<Widget> layers = [
               widget.child,
 
-              // Transparent layer to ensure tap detection on web (e.g., InAppWebView).
+              // Transparent layer to ensure tap detection (esp. on webviews).
               Container(
                 color: Colors.transparent,
                 width: double.infinity,
                 height: double.infinity,
               ),
 
-              // Tap area for double tap (left = backward, right = forward).
+              // Tap zones for double-tap rewind/forward.
               Positioned.fill(
                 child: Row(
                   children: [
-                    // Left side double-tap to rewind.
+                    // Left side: rewind
                     Expanded(
                       child: GestureDetector(
                         behavior: HitTestBehavior.translucent,
                         onDoubleTap: () {
                           if (!widget.options.playerUIVisibilityOptions
-                                  .enableBackwardGesture ||
+                              .enableBackwardGesture ||
                               widget.controller.isFinished ||
                               !widget.controller.hasStarted) {
                             return;
                           }
                           int skipSeconds = 5;
-
-                          if (_skipDirection == SkipDirection.backward &&
-                              _tapState ==
-                                  _TapInteractionState.doubleTapBackward) {
-                            switch (_skipSeconds) {
-                              case 5:
-                                skipSeconds = 5;
-                                break;
-                              default:
-                                skipSeconds = 5;
-                            }
-                          }
 
                           final currentPosition =
                               widget.controller.currentPosition;
@@ -185,38 +185,28 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
                       ),
                     ),
 
-                    // Right side double-tap to fast-forward.
+                    // Right side: forward
                     Expanded(
                       child: GestureDetector(
                         behavior: HitTestBehavior.translucent,
                         onDoubleTap: () {
                           if (!widget.options.playerUIVisibilityOptions
-                                  .enableForwardGesture ||
+                              .enableForwardGesture ||
                               widget.controller.isFinished ||
                               !widget.controller.hasStarted) {
                             return;
                           }
                           int skipSeconds = 5;
 
-                          if (_skipDirection == SkipDirection.forward &&
-                              _tapState ==
-                                  _TapInteractionState.doubleTapForward) {
-                            switch (_skipSeconds) {
-                              case 5:
-                                skipSeconds = 5;
-                                break;
-                              default:
-                                skipSeconds = 5;
-                            }
-                          }
-
                           final currentPosition =
                               widget.controller.currentPosition;
                           final targetPosition =
                               currentPosition + Duration(seconds: skipSeconds);
+
                           if (targetPosition > widget.controller.duration) {
                             return;
                           }
+
                           widget.controller.seekTo(targetPosition);
                           _showSkip(SkipDirection.forward, skipSeconds);
                         },
@@ -227,20 +217,20 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
                 ),
               ),
 
-              // Skip indicator shown in the center with fade out animation.
+              // Skip indicator (fade out animation).
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 500),
                 child: _skipDirection != null &&
-                        (_tapState == _TapInteractionState.doubleTapForward ||
-                            _tapState == _TapInteractionState.doubleTapBackward)
+                    (_tapState == _TapInteractionState.doubleTapForward ||
+                        _tapState == _TapInteractionState.doubleTapBackward)
                     ? AnimatedSkipIndicator(
-                        skipDirection: _skipDirection!,
-                        skipSeconds: _skipSeconds,
-                      )
+                  skipDirection: _skipDirection!,
+                  skipSeconds: _skipSeconds,
+                )
                     : const SizedBox.shrink(),
               ),
 
-              // Gradient bottom bar with playback controls.
+              // Bottom gradient bar with playback controls.
               GradientBottomControlBar(
                 isVisible: areOverlayControlsVisible,
                 padding: widget.playerBarPadding,
@@ -256,8 +246,10 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
                     ),
               ),
 
+              // Show loader while seeking.
               if (widget.controller.isSeeking) LoaderIndicator(),
-              // Central play/pause button with auto-hide logic.
+
+              // Central play/pause button (auto-hide logic).
               AutoHidePlayPauseButton(
                 isVisible: isVisibleButton,
                 controller: widget.controller,
@@ -266,8 +258,9 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
               ),
             ];
 
+            // Insert custom overlays if provided in configuration.
             for (final customOverlay
-                in widget.options.customPlayerWidgets.customOverlayLayers) {
+            in widget.options.customPlayerWidgets.customOverlayLayers) {
               if (customOverlay.ignoreOverlayControlsVisibility ||
                   areOverlayControlsVisible) {
                 final rotation = widget.controller.rotationCorrection;
@@ -289,6 +282,7 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
               }
             }
 
+            // Gesture handling for whole overlay.
             return GestureDetector(
               onTap: () {
                 setState(() => _tapState = _TapInteractionState.singleTap);
@@ -303,7 +297,7 @@ class _VideoOverlayControlsState extends State<VideoOverlayControls>
                     .enableExitFullscreenOnVerticalSwipe) {
                   return;
                 }
-                // Exit fullscreen if the user drags downwards significantly.
+                // Exit fullscreen if drag downwards significantly.
                 if (details.primaryDelta != null &&
                     details.primaryDelta! > 10) {
                   if (widget.controller.isFullScreen) {
