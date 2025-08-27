@@ -68,49 +68,81 @@ class VideoSeekBar extends StatelessWidget {
     return controller.isLive
         ? (showLiveIndicator ? _buildLiveIndicator() : const SizedBox.shrink())
         : (showSeekBar
-            ? AnimatedBuilder(
-                animation: controller,
-                builder: (BuildContext context, Widget? child) {
-                  return _buildSeekBar();
-                })
-            : const SizedBox.shrink());
+        ? AnimatedBuilder(
+        animation: controller,
+        builder: (BuildContext context, Widget? child) {
+          return _buildSeekBar(context);
+        })
+        : const SizedBox.shrink());
   }
 
   /// Builds the UI for live stream playback indicator.
   Widget _buildLiveIndicator() => Align(
-        alignment: Alignment.centerLeft,
-        child: LiveStatusIndicator(label: liveLabel),
-      );
+    alignment: Alignment.centerLeft,
+    child: LiveStatusIndicator(label: liveLabel),
+  );
 
   /// Builds the UI for the interactive seek bar.
-  Widget _buildSeekBar() =>
+  Widget _buildSeekBar(BuildContext context) =>
       customSeekBar ??
-      SeekBar(
-        position: controller.currentPosition,
-        duration: controller.duration,
-        bufferedPosition: _findClosestBufferedEnd(),
-        showRemainingTime: showRemainingTime,
-        onChangeStart: (_) {
-          if (!controller.isSeeking) {
-            controller.wasPlayingBeforeSeek = controller.isPlaying;
-          }
-          if (controller.isReady) controller.isSeeking = true;
-          onSeekStart?.call(controller.currentPosition);
-        },
-        onChangeEnd: (value) {
-          controller.seekTo(value);
-        },
-        onChanged: (_) {
-          if (controller.isReady) controller.isSeeking = true;
-        },
-        showCurrentTime: showCurrentTime,
-        showDurationTime: showDurationTime,
-        customTimeDisplay: customTimeDisplay,
-        controller: controller,
-        allowSeeking: allowSeeking,
-        customDurationDisplay: customDurationDisplay,
-        customRemainingTimeDisplay: customRemainingTimeDisplay,
-      );
+          SeekBar(
+            position: controller.currentPosition,
+            duration: controller.duration,
+            bufferedPosition: _findClosestBufferedEnd(),
+            showRemainingTime: showRemainingTime,
+            onChangeStart: (_) {
+              if (!controller.isSeeking) {
+                controller.wasPlayingBeforeSeek = controller.isPlaying;
+              }
+              if (controller.isReady) controller.isSeeking = true;
+              onSeekStart?.call(controller.currentPosition);
+            },
+            onChangeEnd: (value) {
+              // التحقق هل المكان اللي المستخدم اختاره داخل الجزء المتحمّل
+              final isBuffered = controller.buffered.any(
+                    (range) => value >= range.start && value <= range.end,
+              );
+
+              if (isBuffered) {
+                controller.seekTo(value);
+              } else {
+                // إظهار رسالة قصيرة باستخدام OverlayEntry
+                final overlay = OverlayEntry(
+                  builder: (context) => Positioned(
+                    bottom: 80,
+                    left: MediaQuery.of(context).size.width / 2 - 100,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.black87,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          "Please wait while the video is loading.",
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+
+                Overlay.of(context).insert(overlay);
+                Future.delayed(const Duration(seconds: 2), () => overlay.remove());
+              }
+            },
+            onChanged: (_) {
+              if (controller.isReady) controller.isSeeking = true;
+            },
+            showCurrentTime: showCurrentTime,
+            showDurationTime: showDurationTime,
+            customTimeDisplay: customTimeDisplay,
+            controller: controller,
+            allowSeeking: allowSeeking,
+            customDurationDisplay: customDurationDisplay,
+            customRemainingTimeDisplay: customRemainingTimeDisplay,
+          );
 
   /// Returns the end of the buffered range closest to the current position.
   Duration? _findClosestBufferedEnd() {
@@ -118,7 +150,7 @@ class VideoSeekBar extends StatelessWidget {
     return controller.buffered
         .reduce(
           (a, b) => _timeDifference(a.start) < _timeDifference(b.start) ? a : b,
-        )
+    )
         .end;
   }
 
