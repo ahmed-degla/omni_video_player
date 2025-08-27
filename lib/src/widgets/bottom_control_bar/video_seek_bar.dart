@@ -97,41 +97,67 @@ class VideoSeekBar extends StatelessWidget {
               if (controller.isReady) controller.isSeeking = true;
               onSeekStart?.call(controller.currentPosition);
             },
-            onChangeEnd: (value) {
-              // التحقق هل المكان اللي المستخدم اختاره داخل الجزء المتحمّل
-              final isBuffered = controller.buffered.any(
-                    (range) => value >= range.start && value <= range.end,
-              );
+              onChangeEnd: (value) async {
+                // التحقق هل المكان اللي المستخدم اختاره داخل الجزء المتحمّل
+                final isBuffered = controller.buffered.any(
+                      (range) => value >= range.start && value <= range.end,
+                );
 
-              if (isBuffered) {
-                controller.seekTo(value);
-              } else {
-                // إظهار رسالة قصيرة باستخدام OverlayEntry
-                final overlay = OverlayEntry(
-                  builder: (context) => Positioned(
-                    bottom: 80,
-                    left: MediaQuery.of(context).size.width / 2 - 100,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.black87,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Text(
-                          "Please wait while the video is loading.",
-                          style: TextStyle(color: Colors.white),
+                if (isBuffered) {
+                  // ✅ لو buffered → سيك عادي
+                   controller.seekTo(value);
+                  if (controller.wasPlayingBeforeSeek) {
+                    controller.play();
+                  }
+                  controller.isSeeking = false;
+                } else {
+                  // ❌ لو مش buffered → وقف الفيديو
+                  controller.pause();
+
+                  // إظهار رسالة قصيرة باستخدام OverlayEntry
+                  final overlay = OverlayEntry(
+                    builder: (context) => Positioned(
+                      bottom: 80,
+                      left: MediaQuery.of(context).size.width / 2 - 120,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.black87,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            "⏳ Loading... Please wait until this part is buffered.",
+                            style: TextStyle(color: Colors.white),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                );
+                  );
 
-                Overlay.of(context).insert(overlay);
-                Future.delayed(const Duration(seconds: 2), () => overlay.remove());
-              }
-            },
+                  Overlay.of(context).insert(overlay);
+                  Future.delayed(const Duration(seconds: 2), () => overlay.remove());
+
+                  // 👂 نراقب البوفرينج ونرجّع التشغيل أوتوماتيك أول ما المكان المطلوب يتخزّن
+                  void listener() {
+                    final newlyBuffered = controller.buffered.any(
+                          (range) => value >= range.start && value <= range.end,
+                    );
+                    if (newlyBuffered) {
+                      controller.removeListener(listener);
+                      controller.seekTo(value);
+                      if (controller.isReady && controller.wasPlayingBeforeSeek) {
+                        controller.play();
+                        controller.isSeeking = false;
+                      }
+                    }
+                  }
+
+                  // إضافة listener على الكنترولر
+                  controller.addListener(listener);
+                }
+              },
             onChanged: (_) {
               if (controller.isReady) controller.isSeeking = true;
             },
